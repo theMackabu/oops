@@ -26,9 +26,10 @@ pub const DiffOptions = struct {
 };
 
 pub fn initOops() !void {
-    try fs.makeDirAbsolute(utils.OOPS_DIR);
-    try fs.makeDirAbsolute(utils.OOPS_OBJECTS);
-    try fs.makeDirAbsolute(utils.OOPS_REFS);
+    const cwd = fs.cwd();
+    try cwd.makeDir(utils.OOPS_DIR);
+    try cwd.makeDir(utils.OOPS_OBJECTS);
+    try cwd.makeDir(utils.OOPS_REFS);
 }
 
 pub fn commit(allocator: *Allocator, message: []const u8, metadata: std.StringHashMap([]const u8)) !void {
