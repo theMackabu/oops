@@ -17,7 +17,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        std.debug.print("Usage: oops <command> [args...]\n", .{});
+        help();
         return;
     }
 
@@ -144,7 +144,30 @@ pub fn main() !void {
         try commands.diff(&allocator, args[2], args[3], options);
     } else if (mem.eql(u8, command, "status")) {
         try commands.status(&allocator);
+    } else if (mem.eql(u8, command, "help")) {
+        help();
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
     }
+}
+
+fn help() void {
+    std.debug.print(
+        \\Usage: oops <command> [args...]
+        \\
+        \\Available commands:
+        \\  init           Initialize an oops repository
+        \\  commit         Create a new commit
+        \\  branch         Create a new branch
+        \\  checkout       Switch to a different branch
+        \\  add            Add a file to the staging area
+        \\  rm             Remove files from the working tree and index
+        \\  restore        Restore a file from a previous commit
+        \\  stash          Stash changes in the working directory
+        \\  log            Show commit logs
+        \\  diff           Show differences between commits
+        \\  status         Show the working tree status
+        \\  help           Display this help message
+        \\
+    , .{});
 }
