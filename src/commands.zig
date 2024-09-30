@@ -43,34 +43,27 @@ pub fn commit(allocator: *Allocator, message: []const u8, metadata: std.StringHa
     var commit_data = std.ArrayList(u8).init(allocator.*);
     defer commit_data.deinit();
 
-    try commit_data.appendSlice("parent: ");
-    try commit_data.appendSlice(parent orelse "none");
-    try commit_data.appendSlice("\n");
-
-    try commit_data.appendSlice("message: ");
-    try commit_data.appendSlice(message);
-    try commit_data.appendSlice("\n");
-
-    try commit_data.appendSlice("timestamp: ");
-    try commit_data.writer().print("{d}", .{timestamp});
-    try commit_data.appendSlice("\n");
-
-    try commit_data.appendSlice("author: ");
-    try commit_data.appendSlice(author);
-    try commit_data.appendSlice("\n");
+    try commit_data.writer().print("parent: {s}\n", .{parent orelse "none"});
+    try commit_data.writer().print("timestamp: {d}\n", .{timestamp});
+    try commit_data.writer().print("author: {s}\n", .{author});
 
     var metadata_it = metadata.iterator();
     while (metadata_it.next()) |entry| {
         try commit_data.writer().print("{s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 
+    try commit_data.appendSlice("\n");
+    try commit_data.appendSlice(message);
+    try commit_data.appendSlice("\n");
+
     const commit_hash = try objects.writeObject(allocator, commit_data.items);
     try setCurrentCommit(commit_hash);
 }
 
 pub fn getCurrentCommit(allocator: *Allocator) !?[]u8 {
+    const cwd = fs.cwd();
     const head_path = utils.OOPS_REFS ++ "/HEAD";
-    const file = fs.openFileAbsolute(head_path, .{}) catch |err| switch (err) {
+    const file = cwd.openFile(head_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
@@ -80,8 +73,9 @@ pub fn getCurrentCommit(allocator: *Allocator) !?[]u8 {
 }
 
 pub fn setCurrentCommit(commit_hash: []const u8) !void {
+    const cwd = fs.cwd();
     const head_path = utils.OOPS_REFS ++ "/HEAD";
-    const file = try fs.createFileAbsolute(head_path, .{});
+    const file = try cwd.createFile(head_path, .{});
     defer file.close();
     try file.writeAll(commit_hash);
 }
@@ -357,14 +351,12 @@ pub fn log(allocator: *Allocator, branch_name: ?[]const u8, page_size: usize, pa
         std.debug.print("Commit: {s}\n", .{log_commit.hash});
         std.debug.print("Author: {s}\n", .{log_commit.author});
         std.debug.print("Date: {s}\n", .{formatted_date});
-        std.debug.print("Message:\n{s}\n", .{log_commit.message});
+        std.debug.print("Message:\n{s}", .{log_commit.message});
 
         var metadata_it = log_commit.metadata.iterator();
         while (metadata_it.next()) |entry| {
             std.debug.print("{s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
         }
-
-        std.debug.print("\n", .{});
     }
 
     std.debug.print("Page {d} of {d}\n", .{ page_number, (commits.items.len + page_size - 1) / page_size });

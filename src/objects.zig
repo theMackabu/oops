@@ -42,7 +42,6 @@ pub fn readObject(allocator: *Allocator, hash: []const u8) ![]u8 {
 pub fn parseCommit(allocator: *Allocator, commit_hash: []const u8) !Commit {
     const commit_data = try readObject(allocator, commit_hash);
     var lines = mem.split(u8, commit_data, "\n");
-
     var parent: ?[]const u8 = null;
     var message = std.ArrayList(u8).init(allocator.*);
     defer message.deinit();
@@ -50,17 +49,11 @@ pub fn parseCommit(allocator: *Allocator, commit_hash: []const u8) !Commit {
     var author: ?[]const u8 = null;
     var metadata = std.StringHashMap([]const u8).init(allocator.*);
 
-    var in_message = false;
     while (lines.next()) |line| {
-        if (in_message) {
-            try message.appendSlice(line);
-            try message.append('\n');
-        } else if (mem.startsWith(u8, line, "parent: ")) {
+        if (line.len == 0) break;
+
+        if (mem.startsWith(u8, line, "parent: ")) {
             parent = try allocator.dupe(u8, line["parent: ".len..]);
-        } else if (mem.startsWith(u8, line, "message: ")) {
-            in_message = true;
-            try message.appendSlice(line["message: ".len..]);
-            try message.append('\n');
         } else if (mem.startsWith(u8, line, "timestamp: ")) {
             timestamp = try std.fmt.parseInt(i64, line["timestamp: ".len..], 10);
         } else if (mem.startsWith(u8, line, "author: ")) {
@@ -71,6 +64,11 @@ pub fn parseCommit(allocator: *Allocator, commit_hash: []const u8) !Commit {
             const value = line[colon_index + 2 ..];
             try metadata.put(try allocator.dupe(u8, key), try allocator.dupe(u8, value));
         }
+    }
+
+    while (lines.next()) |line| {
+        try message.appendSlice(line);
+        try message.append('\n');
     }
 
     return Commit{
