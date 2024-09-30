@@ -81,19 +81,44 @@ pub fn setCurrentCommit(commit_hash: []const u8) !void {
 }
 
 pub fn branch(allocator: *Allocator, name: []const u8) !void {
+    const cwd = fs.cwd();
     const current_commit = (try getCurrentCommit(allocator)) orelse return error.NoCommits;
     const branch_path = try std.fmt.allocPrint(allocator.*, "{s}/{s}", .{ utils.OOPS_REFS, name });
-    const file = try fs.createFileAbsolute(branch_path, .{});
+    const file = try cwd.createFile(branch_path, .{});
     defer file.close();
     try file.writeAll(current_commit);
 }
 
 pub fn checkout(allocator: *Allocator, name: []const u8) !void {
-    const branch_path = try std.fmt.allocPrint(allocator.*, "{s}/{s}", .{ utils.OOPS_REFS, name });
-    const file = try fs.openFileAbsolute(branch_path, .{});
-    defer file.close();
-    const commit_hash = try file.readToEndAlloc(allocator.*, 1024);
-    try setCurrentCommit(commit_hash);
+    const cwd = fs.cwd();
+    var commit_hash: []const u8 = undefined;
+
+    const branch_path = try std.fmt.allocPrint(allocator.*, "{s}/refs/heads/{s}", .{ utils.OOPS_DIR, name });
+    defer allocator.free(branch_path);
+
+    if (cwd.openFile(branch_path, .{})) |file| {
+        defer file.close();
+        commit_hash = try file.readToEndAlloc(allocator.*, 1024);
+    } else |_| {
+        commit_hash = try allocator.dupe(u8, name);
+    }
+    defer allocator.free(commit_hash);
+
+    const head_path = try std.fmt.allocPrint(allocator.*, "{s}/HEAD", .{utils.OOPS_DIR});
+    defer allocator.free(head_path);
+
+    const head_file = try cwd.createFile(head_path, .{});
+    defer head_file.close();
+    try head_file.writeAll(commit_hash);
+
+    const current_branch_path = try std.fmt.allocPrint(allocator.*, "{s}/branch", .{utils.OOPS_DIR});
+    defer allocator.free(current_branch_path);
+
+    const branch_file = try cwd.createFile(current_branch_path, .{});
+    defer branch_file.close();
+    try branch_file.writeAll(name);
+
+    std.debug.print("Switched to {s}\n", .{name});
 }
 
 pub fn add(allocator: *std.mem.Allocator, pattern: []const u8) !void {
@@ -308,8 +333,9 @@ pub fn log(allocator: *Allocator, branch_name: ?[]const u8, page_size: usize, pa
     var current_hash: ?[]const u8 = null;
 
     if (branch_name) |name| {
+        const cwd = fs.cwd();
         const branch_path = try std.fmt.allocPrint(allocator.*, "{s}/{s}", .{ utils.OOPS_REFS, name });
-        const file = try fs.openFileAbsolute(branch_path, .{});
+        const file = try cwd.openFile(branch_path, .{});
         defer file.close();
         current_hash = try file.readToEndAlloc(allocator.*, 1024);
     } else {

@@ -20,6 +20,7 @@ pub const FileStatus = enum {
     Renamed,
     Copied,
     Untracked,
+    Directory,
 };
 
 pub fn getUsername(allocator: *Allocator) ![]const u8 {
@@ -146,17 +147,19 @@ pub fn globMatch(pattern: []const u8, str: []const u8) bool {
 }
 
 pub fn getFileStatus(allocator: *Allocator, path: []const u8, index_entry: ?index.IndexEntry) !FileStatus {
-    _ = fs.cwd().access(path, .{}) catch |err| switch (err) {
+    const file_info = fs.cwd().statFile(path) catch |err| switch (err) {
         error.FileNotFound => return if (index_entry != null) FileStatus.Deleted else FileStatus.Untracked,
         else => return err,
     };
 
-    if (index_entry) |entry| {
-        const file = try fs.cwd().openFile(path, .{});
-        defer file.close();
-        const stat = try file.stat();
+    if (file_info.kind == .directory) {
+        return FileStatus.Directory;
+    }
 
-        if (stat.mtime != entry.timestamp) {
+    if (index_entry) |entry| {
+        if (file_info.mtime != entry.timestamp) {
+            const file = try fs.cwd().openFile(path, .{});
+            defer file.close();
             const content = try file.readToEndAlloc(allocator.*, 1024 * 1024);
             defer allocator.free(content);
             const new_hash = try hashObject(allocator, content);
@@ -170,13 +173,15 @@ pub fn getFileStatus(allocator: *Allocator, path: []const u8, index_entry: ?inde
 }
 
 pub fn getCurrentBranch(allocator: *Allocator) ![]const u8 {
-    const head_content = try fs.cwd().readFileAlloc(allocator.*, OOPS_DIR ++ "/HEAD", 1024);
-    defer allocator.free(head_content);
-    if (mem.startsWith(u8, head_content, "ref: refs/heads/")) {
-        return allocator.dupe(u8, head_content["ref: refs/heads/".len..]);
-    } else {
-        return allocator.dupe(u8, "detached HEAD");
-    }
+    const current_branch_path = try std.fmt.allocPrint(allocator.*, "{s}/branch", .{OOPS_DIR});
+    defer allocator.free(current_branch_path);
+
+    const branch_name = fs.cwd().readFileAlloc(allocator.*, current_branch_path, 1024) catch |err| switch (err) {
+        error.FileNotFound => return allocator.dupe(u8, "detached HEAD"),
+        else => return err,
+    };
+
+    return branch_name;
 }
 
 pub fn longestCommonSubsequence(allocator: *Allocator, a: []const []const u8, b: []const []const u8) ![]const usize {

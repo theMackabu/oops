@@ -12,5 +12,8 @@ test.script = [
     "%{env.bin} init",
     "%{env.bin} add src",
     "%{env.bin} commit 'initial commit'",
+    "%{env.bin} branch master",
+    "%{env.bin} checkout master",
     "%{env.bin} log",
+    "%{env.bin} status",
 ]
