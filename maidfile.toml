@@ -1,0 +1,11 @@
+[project]
+name = "oops"
+version = "0.0.1"
+
+[tasks]
+test.script = [
+    "zig build",
+    "rm -rf .oops",
+    "./zig-out/bin/oops init",
+    "bash -c './zig-out/bin/oops add src/*'",
+]

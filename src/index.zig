@@ -27,16 +27,18 @@ pub fn readIndex(allocator: *Allocator) !ArrayList(IndexEntry) {
         error.FileNotFound => return index,
         else => return err,
     };
-    defer allocator.free(index_content);
 
+    defer allocator.free(index_content);
     var lines = mem.split(u8, index_content, "\n");
+
     while (lines.next()) |line| {
         var fields = mem.split(u8, line, "\t");
         const path = try allocator.dupe(u8, fields.next() orelse continue);
         const hash = try allocator.dupe(u8, fields.next() orelse continue);
         const timestamp = try std.fmt.parseInt(i128, fields.next() orelse continue, 10);
-        const mode = try std.fmt.parseInt(u32, fields.next() orelse continue, 8);
+        const mode = try std.fmt.parseInt(u32, fields.next() orelse continue, 10);
         const file_type = try std.meta.intToEnum(FileType, try std.fmt.parseInt(u8, fields.next() orelse continue, 10));
+
         try index.append(IndexEntry{
             .path = path,
             .hash = hash,
@@ -45,6 +47,7 @@ pub fn readIndex(allocator: *Allocator) !ArrayList(IndexEntry) {
             .file_type = file_type,
         });
     }
+
     return index;
 }
 

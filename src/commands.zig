@@ -1,6 +1,8 @@
 const std = @import("std");
+
 const fs = std.fs;
 const mem = std.mem;
+
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 
@@ -100,26 +102,70 @@ pub fn checkout(allocator: *Allocator, name: []const u8) !void {
     try setCurrentCommit(commit_hash);
 }
 
-pub fn add(allocator: *Allocator, path: []const u8) !void {
+pub fn add(allocator: *std.mem.Allocator, pattern: []const u8) !void {
     const ignore_patterns = try utils.readIgnorePatterns(allocator);
     defer ignore_patterns.deinit();
 
-    if (utils.isIgnored(path, ignore_patterns)) {
+    if (std.mem.eql(u8, pattern, ".")) {
+        var cwd = try fs.cwd().openDir(".", .{ .iterate = true });
+        defer cwd.close();
+        try addDirectory(allocator, cwd, ".", &ignore_patterns);
+    } else {
+        var dir = try fs.cwd().openDir(".", .{ .iterate = true });
+        defer dir.close();
+        var walker = try dir.walk(allocator.*);
+        defer walker.deinit();
+        while (try walker.next()) |entry| {
+            if (utils.globMatch(pattern, entry.path)) {
+                if (entry.kind == .directory) {
+                    if (!utils.isIgnored(entry.path, ignore_patterns)) {
+                        var sub_dir = try dir.openDir(entry.path, .{ .iterate = true });
+                        defer sub_dir.close();
+                        try addDirectory(allocator, sub_dir, entry.path, &ignore_patterns);
+                    } else {
+                        std.debug.print("Ignoring directory: {s} (matched ignore pattern)\n", .{entry.path});
+                    }
+                } else {
+                    try addFile(allocator, entry.path, &ignore_patterns);
+                }
+            }
+        }
+    }
+}
+
+fn addDirectory(allocator: *std.mem.Allocator, dir: fs.Dir, dir_path: []const u8, ignore_patterns: *const std.ArrayListAligned([]const u8, null)) !void {
+    var dir_iter = dir.iterate();
+    while (try dir_iter.next()) |entry| {
+        const entry_path = try std.fs.path.join(allocator.*, &[_][]const u8{ dir_path, entry.name });
+        defer allocator.free(entry_path);
+        if (utils.isIgnored(entry_path, ignore_patterns.*)) {
+            std.debug.print("Ignoring {s}: {s} (matched ignore pattern)\n", .{ if (entry.kind == .directory) "directory" else "file", entry_path });
+            continue;
+        }
+        if (entry.kind == .directory) {
+            var sub_dir = try dir.openDir(entry.name, .{ .iterate = true });
+            defer sub_dir.close();
+            try addDirectory(allocator, sub_dir, entry_path, ignore_patterns);
+        } else {
+            try addFile(allocator, entry_path, ignore_patterns);
+        }
+    }
+}
+
+fn addFile(allocator: *Allocator, path: []const u8, ignore_patterns: *const std.ArrayListAligned([]const u8, null)) !void {
+    if (utils.isIgnored(path, ignore_patterns.*)) {
         std.debug.print("Ignoring file: {s} (matched ignore pattern)\n", .{path});
         return;
     }
-
     const file = try fs.cwd().openFile(path, .{});
     defer file.close();
     const stat = try file.stat();
-
     var file_type: index.FileType = undefined;
     var content: []const u8 = undefined;
     switch (stat.kind) {
         .file => {
             file_type = .Regular;
             content = try file.readToEndAlloc(allocator.*, 1024 * 1024);
-            defer allocator.free(content);
         },
         .sym_link => {
             file_type = .Symlink;
@@ -138,12 +184,10 @@ pub fn add(allocator: *Allocator, path: []const u8) !void {
             content = "";
         },
     }
-
     const hash = try objects.writeObject(allocator, content);
-
+    defer allocator.free(content);
     var idx = try index.readIndex(allocator);
     defer idx.deinit();
-
     for (idx.items) |*entry| {
         if (mem.eql(u8, entry.path, path)) {
             entry.hash = hash;
@@ -155,7 +199,6 @@ pub fn add(allocator: *Allocator, path: []const u8) !void {
             return;
         }
     }
-
     try idx.append(index.IndexEntry{
         .path = try allocator.dupe(u8, path),
         .hash = hash,

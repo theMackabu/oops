@@ -42,6 +42,8 @@ pub fn hashObject(allocator: *Allocator, data: []const u8) ![]u8 {
 
 pub fn readIgnorePatterns(allocator: *Allocator) !ArrayList([]const u8) {
     var patterns = ArrayList([]const u8).init(allocator.*);
+    try patterns.append(try allocator.dupe(u8, ".oops"));
+
     const ignore_content = fs.cwd().readFileAlloc(allocator.*, OOPS_IGNORE, 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => return patterns,
         else => return err,
@@ -58,12 +60,58 @@ pub fn readIgnorePatterns(allocator: *Allocator) !ArrayList([]const u8) {
     return patterns;
 }
 
-pub fn isIgnored(path: []const u8, ignore_patterns: ArrayList([]const u8)) bool {
+pub fn isIgnored(path: []const u8, ignore_patterns: std.ArrayListAligned([]const u8, null)) bool {
     for (ignore_patterns.items) |pattern| {
-        if (globMatch(pattern, path)) {
+        if (matchIgnorePattern(path, pattern)) {
             return true;
         }
     }
+    return false;
+}
+
+fn matchIgnorePattern(path: []const u8, pattern: []const u8) bool {
+    if (std.mem.indexOfScalar(u8, pattern, '/') == null) {
+        var path_components = std.mem.split(u8, path, "/");
+        while (path_components.next()) |component| {
+            if (std.mem.eql(u8, component, pattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (pattern[0] == '/') {
+        return std.mem.startsWith(u8, path, pattern[1..]);
+    }
+
+    var path_components = std.mem.split(u8, path, "/");
+    const pattern_components = std.mem.split(u8, pattern, "/");
+
+    while (path_components.next()) |path_component| {
+        var temp_pattern_components = pattern_components;
+        var matches = true;
+        const pattern_component = temp_pattern_components.next() orelse break;
+
+        if (!std.mem.eql(u8, path_component, pattern_component)) {
+            continue;
+        }
+
+        while (temp_pattern_components.next()) |next_pattern_component| {
+            const next_path_component = path_components.next() orelse {
+                matches = false;
+                break;
+            };
+            if (!std.mem.eql(u8, next_path_component, next_pattern_component)) {
+                matches = false;
+                break;
+            }
+        }
+
+        if (matches) {
+            return true;
+        }
+    }
+
     return false;
 }
 

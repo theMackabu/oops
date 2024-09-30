@@ -17,16 +17,21 @@ pub const Commit = struct {
 
 pub fn writeObject(allocator: *Allocator, data: []const u8) ![]u8 {
     const hash = try utils.hashObject(allocator, data);
-    const path = try std.fmt.allocPrint(allocator.*, "{s}/{s}", .{ utils.OOPS_OBJECTS, hash });
-    const file = try fs.createFileAbsolute(path, .{});
+    const path = try std.fs.path.join(allocator.*, &.{ utils.OOPS_OBJECTS, hash });
+    defer allocator.free(path);
+    const cwd = fs.cwd();
+    try cwd.makePath(std.fs.path.dirname(path).?);
+    const file = try cwd.createFile(path, .{});
     defer file.close();
     try file.writeAll(data);
     return hash;
 }
 
 pub fn readObject(allocator: *Allocator, hash: []const u8) ![]u8 {
-    const path = try std.fmt.allocPrint(allocator.*, "{s}/{s}", .{ utils.OOPS_OBJECTS, hash });
-    const file = try fs.openFileAbsolute(path, .{});
+    const path = try std.fs.path.join(allocator.*, &.{ utils.OOPS_OBJECTS, hash });
+    defer allocator.free(path);
+    const cwd = fs.cwd();
+    const file = try cwd.openFile(path, .{});
     defer file.close();
     const stat = try file.stat();
     const data = try allocator.alloc(u8, stat.size);
