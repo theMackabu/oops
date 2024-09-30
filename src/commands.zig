@@ -444,7 +444,6 @@ pub fn diff(allocator: *Allocator, hash1: []const u8, hash2: []const u8, options
 pub fn status(allocator: *Allocator) !void {
     var idx = try index.readIndex(allocator);
     defer idx.deinit();
-
     var staged = std.ArrayList([]const u8).init(allocator.*);
     defer staged.deinit();
     var modified = std.ArrayList([]const u8).init(allocator.*);
@@ -454,7 +453,9 @@ pub fn status(allocator: *Allocator) !void {
     var untracked = std.ArrayList([]const u8).init(allocator.*);
     defer untracked.deinit();
 
-    // Check indexed files
+    const ignore_patterns = try utils.readIgnorePatterns(allocator);
+    defer ignore_patterns.deinit();
+
     for (idx.items) |entry| {
         const file_status = try utils.getFileStatus(allocator, entry.path, entry);
         switch (file_status) {
@@ -464,7 +465,6 @@ pub fn status(allocator: *Allocator) !void {
         }
     }
 
-    // Check for untracked files
     var dir = try fs.cwd().openDir(".", .{});
     defer dir.close();
     var it = dir.iterate();
@@ -472,6 +472,16 @@ pub fn status(allocator: *Allocator) !void {
         if (mem.eql(u8, entry.name, utils.OOPS_DIR)) continue;
         const full_path = try std.fs.path.join(allocator.*, &[_][]const u8{ ".", entry.name });
         defer allocator.free(full_path);
+
+        var should_ignore = false;
+        for (ignore_patterns.items) |pattern| {
+            if (std.mem.indexOf(u8, full_path, pattern) != null) {
+                should_ignore = true;
+                break;
+            }
+        }
+        if (should_ignore) continue;
+
         const index_entry = for (idx.items) |idx_entry| {
             if (mem.eql(u8, idx_entry.path, full_path)) break idx_entry;
         } else null;
@@ -481,14 +491,11 @@ pub fn status(allocator: *Allocator) !void {
         }
     }
 
-    // Print status
     std.debug.print("On branch {s}\n\n", .{try utils.getCurrentBranch(allocator)});
-
     if (staged.items.len == 0 and modified.items.len == 0 and deleted.items.len == 0 and untracked.items.len == 0) {
-        std.debug.print("nothing to commit, working tree clean\n", .{});
+        std.debug.print("Nothing to commit, working tree clean\n", .{});
         return;
     }
-
     if (staged.items.len > 0) {
         std.debug.print("Changes to be committed:\n", .{});
         for (staged.items) |file| {
@@ -496,7 +503,6 @@ pub fn status(allocator: *Allocator) !void {
         }
         std.debug.print("\n", .{});
     }
-
     if (modified.items.len > 0 or deleted.items.len > 0) {
         std.debug.print("Changes not staged for commit:\n", .{});
         for (modified.items) |file| {
@@ -507,7 +513,6 @@ pub fn status(allocator: *Allocator) !void {
         }
         std.debug.print("\n", .{});
     }
-
     if (untracked.items.len > 0) {
         std.debug.print("Untracked files:\n", .{});
         for (untracked.items) |file| {
